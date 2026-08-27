@@ -75,22 +75,23 @@ class Whisper {
     required TranscribeRequest transcribeRequest,
     required String modelPath,
   }) async {
+    File? convertedFile;
     try {
-      final WhisperAudioConvert converter = WhisperAudioConvert(
-        audioInput: File(transcribeRequest.audio),
-        audioOutput: File('${transcribeRequest.audio}.wav'),
-      );
+      final input = File(transcribeRequest.audio);
+      final alreadyWav = transcribeRequest.audio.toLowerCase().endsWith('.wav');
+      if (!alreadyWav) {
+        final converter = WhisperAudioConvert(
+          audioInput: input,
+          audioOutput: File('${transcribeRequest.audio}.whisper.wav'),
+        );
+        convertedFile = await converter.convert();
+      }
 
-      final File? convertedFile = await converter.convert();
-      final TranscribeRequest req = transcribeRequest.copyWith(
+      final req = transcribeRequest.copyWith(
         audio: convertedFile?.path ?? transcribeRequest.audio,
       );
-
-      final Map<String, dynamic> result = await _request(
-        whisperRequest: TranscribeRequestDto.fromTranscribeRequest(
-          req,
-          modelPath,
-        ),
+      final result = await _request(
+        whisperRequest: TranscribeRequestDto.fromTranscribeRequest(req, modelPath),
       );
 
       if (result['text'] == null) {
@@ -100,6 +101,13 @@ class Whisper {
     } catch (e) {
       debugPrint(e.toString());
       rethrow;
+    } finally {
+      final temporary = convertedFile;
+      if (temporary != null) {
+        try {
+          if (await temporary.exists()) await temporary.delete();
+        } catch (_) {}
+      }
     }
   }
 
