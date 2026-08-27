@@ -18,49 +18,59 @@ import 'models/whisper_dto.dart';
 export 'models/_models.dart';
 export 'whisper_audio_convert.dart';
 
-/// Native request type
 typedef WReqNative = Pointer<Utf8> Function(Pointer<Utf8> body);
+typedef WFreeResultNative = Void Function(Pointer<Utf8> result);
+typedef WFreeResultDart = void Function(Pointer<Utf8> result);
+typedef WReleaseModelNative = Void Function();
+typedef WReleaseModelDart = void Function();
 
-/// Entry point
 class Whisper {
-  /// [model] is required
-  /// [modelDir] is path where downloaded model will be stored.
-  /// Default to library directory
   const Whisper({required this.model, this.modelDir});
 
-  /// model used for transcription
   final WhisperModel model;
-
-  /// override of model storage path
   final String? modelDir;
 
   DynamicLibrary _openLib() {
     if (Platform.isAndroid) {
       return DynamicLibrary.open('libwhisper.so');
-    } else {
-      return DynamicLibrary.process();
     }
+    return DynamicLibrary.process();
   }
 
   Future<Map<String, dynamic>> _request({
     required WhisperRequestDto whisperRequest,
   }) async {
-    return Isolate.run(() async {
-      final Pointer<Utf8> data =
-          whisperRequest.toRequestString().toNativeUtf8();
-      final Pointer<Utf8> res = _openLib()
-          .lookupFunction<WReqNative, WReqNative>('request')
-          .call(data);
-
-      final Map<String, dynamic> result =
-          json.decode(res.toDartString()) as Map<String, dynamic>;
-
-      malloc.free(data);
-      return result;
+    return Isolate.run(() {
+      final lib = _openLib();
+      final request = lib.lookupFunction<WReqNative, WReqNative>('request');
+      final freeResult = lib.lookupFunction<WFreeResultNative, WFreeResultDart>(
+        'free_result',
+      );
+      final data = whisperRequest.toRequestString().toNativeUtf8();
+      Pointer<Utf8> resultPointer = nullptr;
+      try {
+        resultPointer = request(data);
+        if (resultPointer == nullptr) {
+          throw StateError('Native Whisper request returned a null result');
+        }
+        final decoded = json.decode(resultPointer.toDartString());
+        return decoded as Map<String, dynamic>;
+      } finally {
+        malloc.free(data);
+        if (resultPointer != nullptr) freeResult(resultPointer);
+      }
     });
   }
 
-  /// Transcribe audio file to text
+  /// Explicitly releases the native model/context. The native implementation is
+  /// process-global, so this releases the model loaded by any Whisper instance.
+  void releaseModel() {
+    final lib = _openLib();
+    lib.lookupFunction<WReleaseModelNative, WReleaseModelDart>(
+      'release_model',
+    )();
+  }
+
   Future<WhisperTranscribeResponse> transcribe({
     required TranscribeRequest transcribeRequest,
     required String modelPath,
@@ -72,7 +82,6 @@ class Whisper {
       );
 
       final File? convertedFile = await converter.convert();
-
       final TranscribeRequest req = transcribeRequest.copyWith(
         audio: convertedFile?.path ?? transcribeRequest.audio,
       );
@@ -94,12 +103,10 @@ class Whisper {
     }
   }
 
-  /// Get whisper version
   Future<String?> getVersion() async {
     final Map<String, dynamic> result = await _request(
       whisperRequest: const VersionRequest(),
     );
-
     final WhisperVersionResponse response = WhisperVersionResponse.fromJson(
       result,
     );
