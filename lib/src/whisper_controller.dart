@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:universal_io/io.dart';
 import 'package:whisper_ggml_plus/src/models/whisper_model.dart';
@@ -30,7 +29,7 @@ class WhisperController {
     const bool splitWords = false;
 
     try {
-      final WhisperTranscribeResponse transcription = await whisper.transcribe(
+      final transcription = await whisper.transcribe(
         transcribeRequest: TranscribeRequest(
           audio: audioPath,
           language: lang,
@@ -44,14 +43,17 @@ class WhisperController {
       );
 
       final Duration transcriptionDuration = DateTime.now().difference(start);
-
       return TranscribeResult(
         time: transcriptionDuration,
         transcription: transcription,
       );
-    } catch (e) {
-      debugPrint(e.toString());
+    } catch (_) {
       return null;
+    } finally {
+      // The model can be hundreds of MB. Do not retain the native global context
+      // after a transcription; the Android 17 memory metric counts that RSS even
+      // while the UI is idle/backgrounded.
+      whisper.releaseModel();
     }
   }
 
@@ -62,27 +64,47 @@ class WhisperController {
     return libraryDirectory.path;
   }
 
-  /// Get local path of model file
   Future<String> getPath(WhisperModel model) async {
     _dir ??= await getModelDir();
     return '$_dir/ggml-${model.modelName}.bin';
   }
 
-  /// Download [model] to [destinationPath]
+  /// Downloads a model directly to disk. The old implementation consolidated
+  /// the complete response into a Uint8List first, temporarily duplicating a
+  /// 100MB+ model in Dart heap.
   Future<String> downloadModel(WhisperModel model) async {
-    if (!File(await getPath(model)).existsSync()) {
-      final request = await HttpClient().getUrl(model.modelUri);
+    final path = await getPath(model);
+    final file = File(path);
+    if (await file.exists()) return path;
 
+    final client = HttpClient();
+    final partial = File('$path.part');
+    try {
+      final request = await client.getUrl(model.modelUri);
       final response = await request.close();
-
-      final bytes = await consolidateHttpClientResponseBytes(response);
-
-      final File file = File(await getPath(model));
-      await file.writeAsBytes(bytes);
-
-      return file.path;
-    } else {
-      return await getPath(model);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+          'Model download failed with HTTP ${response.statusCode}',
+          uri: model.modelUri,
+        );
+      }
+      final sink = partial.openWrite();
+      try {
+        await response.pipe(sink);
+      } catch (_) {
+        await sink.close();
+        rethrow;
+      }
+      if (await file.exists()) await file.delete();
+      await partial.rename(path);
+      return path;
+    } finally {
+      client.close(force: true);
+      if (await partial.exists() && !await file.exists()) {
+        try {
+          await partial.delete();
+        } catch (_) {}
+      }
     }
   }
 }
