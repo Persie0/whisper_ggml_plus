@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -93,9 +94,6 @@ static bool loadMonoPcmF32(const std::string &path, std::vector<float> &pcmf32) 
         return read > 0;
     }
 
-    // Downmix in bounded chunks instead of allocating a second full-size
-    // interleaved PCM buffer. The app normally supplies mono 16 kHz WAV, but
-    // this keeps arbitrary input from doubling peak memory.
     constexpr drwav_uint64 kChunkFrames = 4096;
     std::vector<float> interleaved(kChunkFrames * channels);
     drwav_uint64 written = 0;
