@@ -10,6 +10,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fdata-sections -ffunction-sections"
 # Define GGML version and commit (placeholders as we don't have git info here)
 add_definitions(-DGGML_VERSION="unknown")
 add_definitions(-DGGML_COMMIT="unknown")
+# Vendored whisper.cpp implements whisper_version() using this string macro.
+# The upstream build injects WHISPER_VERSION automatically; this standalone
+# Flutter CMake project must supply it explicitly.
+add_definitions(-DWHISPER_VERSION=\"unknown\")
 
 # Include directories
 # The 'src' folder (relative to this CMakeLists.txt) is android/src/whisper/src
