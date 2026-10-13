@@ -7,21 +7,37 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -fdata-sections -ffunction-sections")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -fdata-sections -ffunction-sections")
 
+# Define GGML version and commit (placeholders as we don't have git info here)
+add_definitions(-DGGML_VERSION="unknown")
+add_definitions(-DGGML_COMMIT="unknown")
+# Vendored whisper.cpp implements whisper_version() using this string macro.
+# The upstream build injects WHISPER_VERSION automatically; this standalone
+# Flutter CMake project must supply it explicitly.
+add_definitions(-DWHISPER_VERSION=\"unknown\")
+
 # Include directories
+# The 'src' folder (relative to this CMakeLists.txt) is android/src/whisper/src
 include_directories(src)
-include_directories(src/ggml-cpu)
-include_directories(src/coreml)
+include_directories(src/include)
+include_directories(src/src)
+include_directories(src/ggml/include)
+include_directories(src/ggml/src)
+include_directories(src/ggml/src/ggml-cpu)
+# CoreML is not available on Android
+# include_directories(src/src/coreml)
 
 # Collect all engine source files
 file(GLOB WHISPER_SRC 
-    src/*.cpp 
-    src/*.c
-    src/ggml-cpu/*.cpp
-    src/ggml-cpu/*.c
-    src/coreml/*.cpp
-    src/coreml/*.c
-    src/coreml/*.m
-    src/coreml/*.mm
+    src/src/*.cpp
+    src/src/*.c
+    src/ggml/src/*.cpp
+    src/ggml/src/*.c
+    src/ggml/src/ggml-cpu/*.cpp
+    src/ggml/src/ggml-cpu/*.c
+    # src/src/coreml/*.cpp
+    # src/src/coreml/*.c
+    # src/src/coreml/*.m
+    # src/src/coreml/*.mm
 )
 
 add_library(whisper ${WHISPER_SRC})
